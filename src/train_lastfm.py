@@ -4,8 +4,12 @@ Reads the split written by split_lastfm.py (train.parquet, test.parquet). Report
     all        every test play counts, replays included
     discovery  only tracks the user never played in train
 
+TempoRec (TR-08) = HSTU + artist feature + request-time context, with ablation switches.
+
 Usage:
     python src/train_lastfm.py --model hstu --seed 0
+    python src/train_lastfm.py --model temporec --max-len 500 --seed 0
+    python src/train_lastfm.py --model temporec --no-artist --seed 0           # ablation
     python src/train_lastfm.py --model hstu --sample-frac 0.1 --epochs 2 --results results/debug.csv
 """
 import argparse
@@ -36,9 +40,13 @@ def load_split(data_dir: str, sample_frac: float):
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--model", required=True, choices=["popular", "recent", "sasrec", "bert4rec", "hstu", "hstu_large"])
+    p.add_argument("--model", required=True, choices=["popular", "recent", *TRANSFORMERS])
     p.add_argument("--data", default="data/processed/lastfm")
     p.add_argument("--max-len", type=int, default=200, help="sequence length = chunk length")
+    p.add_argument("--blocks", type=int, default=None, help="number of layers (default 2)")
+    p.add_argument("--factors", type=int, default=None, help="embedding size (default 50)")
+    p.add_argument("--no-artist", action="store_true", help="TempoRec ablation: no artist feature")
+    p.add_argument("--no-time-attention", action="store_true", help="ablation: no time-aware attention")
     p.add_argument("--sample-frac", type=float, default=1.0, help="fraction of users, for debugging")
     p.add_argument("--epochs", type=int, default=100)
     p.add_argument("--seed", type=int, default=0, help="training seed: 0, 1 or 2")
@@ -56,6 +64,10 @@ def fit_transformer(args, train, overrides=None, item_features=None):
         cat_item_features=list(item_features["feature"].unique()) if use_features else (),
     )
     run = f"lastfm_{args.model}_L{args.max_len}_s{args.seed}"
+    if getattr(args, "no_artist", False):
+        run += "_noartist"
+    if getattr(args, "no_time_attention", False):
+        run += "_notime"
     trainer_func = make_trainer_func("logs/lightning", run, args.epochs)
     model = build_model(args.model, trainer_func, use_features,
                         session_max_len=args.max_len, **(overrides or {}))
@@ -97,11 +109,25 @@ def main() -> None:
     elif args.model == "recent":
         reco_long = recently_played(train, users, k=10)
     else:
-        model, dataset = fit_transformer(args, train)
+        overrides = {}
+        if args.blocks:
+            overrides["n_blocks"] = args.blocks
+        if args.factors:
+            overrides["n_factors"] = args.factors
+        if args.no_time_attention:
+            overrides["relative_time_attention"] = False
+        use_artist = args.model == "temporec" and not args.no_artist
+        item_features = None
+        if use_artist:
+            item_features = pd.read_parquet(f"{args.data}/item_features.parquet")
+            item_features = item_features[item_features["id"].isin(train[Columns.Item])]
+        model, dataset = fit_transformer(args, train, overrides, item_features)
         epochs_run = model.fit_trainer.current_epoch
         reco_long = recommend(model, dataset, test, users)
 
-    base = {"model": args.model, "max_len": args.max_len, "seed": args.seed, "sample_frac": args.sample_frac,
+    base = {"model": args.model, "max_len": args.max_len, "blocks": args.blocks,
+            "artist": args.model == "temporec" and not args.no_artist,
+            "time_attention": not args.no_time_attention, "seed": args.seed, "sample_frac": args.sample_frac,
             "epochs_run": epochs_run, "minutes": round((time.time() - start) / 60, 1)}
     report(args, base, reco_long, test, train)
 
