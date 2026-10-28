@@ -1,4 +1,7 @@
-"""Non-neural baselines (TR-04, data and eval). Both return user_id, item_id, rank."""
+"""The two simple baselines every model has to beat (TR-04, data and eval).
+
+Both return user_id, item_id, rank, like the models do.
+"""
 import pandas as pd
 from rectools import Columns
 

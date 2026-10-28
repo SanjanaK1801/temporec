@@ -1,11 +1,12 @@
-"""Evaluation contract shared by every training script (TR-04, data and eval).
+"""How every model gets scored (TR-04, data and eval).
 
-evaluate(reco, test, train) -> dict  is the only function training code needs. Do not change
-its signature or the metric names without telling your partner.
+evaluate(reco, test, train) is the only function the training scripts call, and both of us code
+against its arguments and the metric names it returns. Talk to your partner before changing
+either.
 
-reco   DataFrame with user_id, item_id, rank (1 = best), at most 10 rows per user
-test   DataFrame with user_id, item_id (the plays to predict)
-train  DataFrame with user_id, item_id (the history; used for the catalog)
+reco   user_id, item_id, rank (1 = best), at most 10 rows per user
+test   user_id, item_id: the listens we are trying to predict
+train  user_id, item_id: the history, which also defines the catalog
 """
 from pathlib import Path
 
