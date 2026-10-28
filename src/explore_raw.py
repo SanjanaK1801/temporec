@@ -1,7 +1,6 @@
 import pandas as pd
 
-RAW = "/scratch/zt1/project/msml612/shared/lastfm-dataset-1K/userid-timestamp-artid-artname-traid-traname.tsv"
-
+RAW = "/scratch/zt1/project/msml612/shared/next_song_prediction/data/lastfm-dataset-1K/userid-timestamp-artid-artname-traid-traname.tsv"
 cols = ["user_id", "timestamp", "artist_mbid", "artist_name", "track_mbid", "track_name"]
 
 
