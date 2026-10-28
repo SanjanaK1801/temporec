@@ -112,7 +112,6 @@ Goal: a working, verified pipeline end to end and first results. Tracking issue
 | TR-07 | Last.fm training and baselines | Popular, recent, SASRec and HSTU on Last.fm (seed 0), `all` and `discovery` results |
 | TR-08 | TempoRec on Last.fm | First TempoRec run (sequence length 200, 500 if time) compared with HSTU |
 | TR-09 | Epoch curves and results tables | Loss-by-epoch figures for every run and the results tables |
-| TR-10 | Interim report | Report with data, method, verification and preliminary results |
 
 Interim results are **preliminary**: single seed, and some runs may use a sample of users.
 
