@@ -1,0 +1,18 @@
+# data and run outputs
+data/
+logs/
+lightning_logs/
+results/debug*.csv
+*.ckpt
+*.tmp
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+
+# OS and editors
+.DS_Store
+.vscode/
+.idea/
