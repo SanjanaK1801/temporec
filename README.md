@@ -44,10 +44,13 @@ never committed.
 | Last.fm 1K | Our problem: music listening | 19M events, 992 users | [Zenodo](https://zenodo.org/records/6090214) |
 | MovieLens-1M | Reproduce the HSTU paper's results | 1M ratings, 6,040 users | [GroupLens](https://grouplens.org/datasets/movielens/1m/) |
 
-Last.fm 1K holds each user's full listening history up to May 2009. Our pipeline builds a track ID
-from the lowercased `artist - title`, drops repeat scrobbles within 30 seconds, keeps tracks with at
-least 5 plays and users with at least 20 events, and splits globally by time: the last 30 days are
-the test set. MovieLens-1M uses the paper's leave-one-out protocol.
+Last.fm 1K holds each user's full listening history up to June 2009. Our pipeline builds a track
+ID from the lowercased `artist - title`, drops two listens with impossible dates (2010 and 2013),
+drops repeat scrobbles within 30 seconds, keeps tracks with at least 5 plays and users with at
+least 20 events, and splits globally by time: the last 60 days are the test set. That leaves
+17.4M listens from 983 users over 528K tracks, with 798 users in the test set. (Listening thins
+out in May and June 2009, so a 30-day window would leave only 162 test users.) MovieLens-1M uses
+the paper's leave-one-out protocol.
 
 ## Evaluation
 
@@ -102,7 +105,7 @@ Goal: a working, verified pipeline end to end and first results. Tracking issue
 |---|---|---|
 | TR-01 | Repository scaffold and conventions | This repo, pinned environment, README and proposal |
 | TR-02 | Zaratan environment and job scripts | Conda env on Zaratan, GPU check and training job scripts |
-| TR-03 | Last.fm pipeline and time split | Cleaned Last.fm 1K, 30-day time split, dataset statistics and figures |
+| TR-03 | Last.fm pipeline and time split | Cleaned Last.fm 1K, 60-day time split, dataset statistics and figures |
 | TR-04 | Evaluation module and simple baselines | Shared `evaluate()` (HR, recall, NDCG, coverage at 10), most-popular and recently-played baselines, unit tests |
 | TR-05 | Model builders and per-epoch logging | SASRec, BERT4Rec, HSTU, HSTU-large, TempoRec builders; per-epoch loss logs; early stopping |
 | TR-06 | MovieLens-1M reproduction | HSTU and SASRec (HSTU-large if time) compared with the paper and RecTools numbers |
@@ -161,8 +164,10 @@ wget -O lastfm-dataset-1K.tar.gz "https://zenodo.org/records/6090214/files/lastf
 tar -xzf lastfm-dataset-1K.tar.gz
 wget https://files.grouplens.org/datasets/movielens/ml-1m.zip && unzip ml-1m.zip
 cd ../..
+# prepare saves a checkpoint after each step; if it dies, rerun the same command and it picks up
+# from the last finished step (--fresh starts over)
 python src/prepare_lastfm.py --raw data/raw/lastfm-dataset-1K/userid-timestamp-artid-artname-traid-traname.tsv --out data/processed/lastfm
-python src/split_lastfm.py --data data/processed/lastfm --test-days 30
+python src/split_lastfm.py --data data/processed/lastfm --test-days 60
 python src/dataset_figures.py
 
 # MovieLens-1M reproduction (compare with the HSTU paper)
