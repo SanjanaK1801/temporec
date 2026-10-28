@@ -72,7 +72,7 @@ Verification targets on MovieLens-1M (HR@10 / NDCG@10):
 |---|---|---|
 | HSTU | 0.3097 / 0.1720 | 0.3226 / 0.1880 |
 | HSTU-large | 0.3294 / 0.1893 | 0.3642 / 0.2164 |
-| SASRec | — | 0.2877 / 0.1622 |
+| SASRec | 0.2853 / 0.1603 | 0.2877 / 0.1622 |
 
 On Last.fm 1K, where no HSTU results are published, the target is to beat vanilla HSTU, SASRec,
 BERT4Rec, most popular and recently played under identical settings, averaged over 3 seeds.
