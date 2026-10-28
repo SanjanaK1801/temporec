@@ -1,7 +1,7 @@
 """Split the cleaned Last.fm 1K listens into train and test by time (TR-03, data and eval).
 
 Usage:
-    python src/split_lastfm.py --data data/processed/lastfm --test-days 30
+    python src/split_lastfm.py --data data/processed/lastfm --test-days 60
 
 Reads interactions.parquet (from prepare_lastfm.py) and writes train.parquet, test.parquet and
 split.json to the same folder.
@@ -11,6 +11,8 @@ How the split works:
   before the cutoff, test is everything from the cutoff on.
 - Test listens by users or of tracks that never show up in train are dropped, because no model
   can score them.
+- 60 days, not 30: listening thins out in May and June 2009, and 30 days leaves only 162 test
+  users (we want at least 200). 60 days gives 798.
 - There is no separate validation file. The training scripts hold out each user's last training
   listen for that.
 """
@@ -34,7 +36,7 @@ def time_split(df: pd.DataFrame, test_days: int):
 def main(argv=None) -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--data", default="data/processed/lastfm")
-    p.add_argument("--test-days", type=int, default=30)
+    p.add_argument("--test-days", type=int, default=60)
     args = p.parse_args(argv)
 
     data = Path(args.data)

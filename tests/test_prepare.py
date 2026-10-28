@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 import prepare_lastfm
-from prepare_lastfm import drop_rare, drop_repeat_scrobbles
+from prepare_lastfm import drop_after, drop_rare, drop_repeat_scrobbles
 
 T = pd.Timestamp("2009-01-01")
 
@@ -28,6 +28,12 @@ def test_rare_tracks_and_light_users_are_dropped():
     assert set(kept["user_id"]) == {"u1", "u2"}
 
 
+def test_listens_after_the_last_date_are_dropped():
+    df = pd.DataFrame({"user_id": ["u1"] * 3, "item_id": ["a"] * 3,
+                       "datetime": pd.to_datetime(["2009-06-30 23:59", "2009-07-01 00:00", "2013-09-29 18:32"])})
+    assert list(drop_after(df, "2009-06-30")["datetime"].astype(str)) == ["2009-06-30 23:59:00"]
+
+
 @pytest.fixture
 def raw_file(tmp_path):
     # 3 users x 6 listens of 2 tracks, in the raw Last.fm format (tab separated, no header).
@@ -49,7 +55,7 @@ def test_full_run_writes_everything(raw_file, tmp_path):
     out = tmp_path / "out"
     run(raw_file, out)
     stats = json.loads((out / "stats.json").read_text())
-    assert [s["step"] for s in stats["steps"]] == ["raw", "cleaned", "deduplicated", "filtered"]
+    assert [s["step"] for s in stats["steps"]] == ["raw", "cleaned", "up to 2009-06-30", "deduplicated", "filtered"]
     assert stats["steps"][-1] == {"step": "filtered", "events": 18, "users": 3, "items": 2}
     interactions = pd.read_parquet(out / "interactions.parquet")
     assert list(interactions.columns) == ["user_id", "item_id", "datetime", "weight"]

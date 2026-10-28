@@ -10,7 +10,10 @@ Writes to --out:
     stats.json             events, users and tracks left after each step, for the report
 
 The raw file has about 19M rows; a full run takes a few minutes and around 10 GB of memory on a
-laptop. After each step the table is saved to --out/checkpoints/, so if the run dies later on
+laptop. Listens after --last-date (default 2009-06-30) are dropped: the data ends in June 2009
+and the two rows dated later are clock errors.
+
+After each step the table is saved to --out/checkpoints/, so if the run dies later on
 (our first one did, while writing the output) the next run starts from the last finished step
 instead of reading the 2.5 GB file again. Add --fresh to ignore those checkpoints.
 """
@@ -67,6 +70,17 @@ def clean(raw: pd.DataFrame) -> pd.DataFrame:
     return df.sort_values(["user_id", "datetime"], kind="stable").reset_index(drop=True)
 
 
+def drop_after(df: pd.DataFrame, last_date: str) -> pd.DataFrame:
+    """Drop listens dated after the end of the data collection.
+
+    The dataset ends in June 2009, but two rows claim to be from 2010 and 2013. They are clock
+    errors, and since the test window is measured back from the latest listen, a single one of
+    them would leave the test set almost empty.
+    """
+    end = pd.Timestamp(last_date) + pd.Timedelta(days=1)  # keep the whole last day
+    return df[df["datetime"] < end].reset_index(drop=True)
+
+
 def drop_repeat_scrobbles(df: pd.DataFrame, seconds: int) -> pd.DataFrame:
     """Drop a listen if the user's previous listen was the same track less than `seconds` earlier.
 
@@ -98,6 +112,7 @@ def main(argv=None) -> None:
     p.add_argument("--min-item-plays", type=int, default=5)
     p.add_argument("--min-user-events", type=int, default=20)
     p.add_argument("--dedupe-seconds", type=int, default=30)
+    p.add_argument("--last-date", default="2009-06-30", help="drop listens after this day (bad timestamps)")
     p.add_argument("--fresh", action="store_true", help="ignore checkpoints from earlier runs")
     args = p.parse_args(argv)
     out = Path(args.out)
@@ -105,7 +120,7 @@ def main(argv=None) -> None:
     # Each step's settings include the ones before it, so changing e.g. --min-item-plays
     # reuses the cleaned and deduplicated tables but redoes the filtering.
     raw_file = Path(args.raw)
-    s_clean = {"raw": raw_file.name, "raw_bytes": raw_file.stat().st_size}
+    s_clean = {"raw": raw_file.name, "raw_bytes": raw_file.stat().st_size, "last_date": args.last_date}
     s_dedupe = {**s_clean, "dedupe_seconds": args.dedupe_seconds}
     s_filter = {**s_dedupe, "min_item_plays": args.min_item_plays, "min_user_events": args.min_user_events}
 
@@ -113,7 +128,9 @@ def main(argv=None) -> None:
         raw = load_raw(args.raw)
         raw_count = {"step": "raw", "events": int(len(raw)), "users": int(raw["user"].nunique()), "items": None}
         df = clean(raw)
-        return df, [raw_count, count(df, "cleaned")]
+        cleaned_count = count(df, "cleaned")
+        df = drop_after(df, args.last_date)
+        return df, [raw_count, cleaned_count, count(df, f"up to {args.last_date}")]
 
     steps = [
         ("cleaned", s_clean, load_and_clean),
