@@ -18,15 +18,20 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
+from matplotlib.ticker import FuncFormatter
 
 from checkpoint import atomic_write
 
 
 def stats_table(stats: dict) -> str:
+    steps = pd.DataFrame(stats["steps"])
+    # The raw step has no track count; without this the whole column turns into floats like 1.5e+06.
+    for col in ("events", "users", "items"):
+        steps[col] = steps[col].map(lambda v: "" if pd.isna(v) else f"{int(v):,}")
     lines = [
         "## Data preparation steps",
         "",
-        pd.DataFrame(stats["steps"]).to_markdown(index=False),
+        steps.to_markdown(index=False, colalign=("left", "right", "right", "right")),
         "",
         f"Date range: {stats['first_event']} to {stats['last_event']}",
         f"Artists: {stats['artists']:,}; median events per user: {stats['events_per_user_median']:,.0f}; "
@@ -38,6 +43,7 @@ def stats_table(stats: dict) -> str:
 def events_per_user(df, ax):
     # Log scale on the y axis: a handful of very heavy listeners would flatten everything else.
     df.groupby("user_id").size().plot.hist(bins=50, log=True, ax=ax)
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{x / 1000:.0f}k"))
     ax.set(xlabel="Listening events per user", ylabel="Users (log scale)")
 
 
@@ -50,8 +56,9 @@ def track_popularity(df, ax):
 
 def plays_by_hour(df, ax):
     # The daily rhythm of listening, which is part of why time-aware attention might help.
-    df["datetime"].dt.hour.value_counts().sort_index().plot.bar(ax=ax)
-    ax.set(xlabel="Hour of day (UTC)", ylabel="Listening events")
+    (df["datetime"].dt.hour.value_counts().sort_index() / 1e6).plot.bar(ax=ax, rot=0)
+    ax.tick_params(axis="x", labelsize=7)
+    ax.set(xlabel="Hour of day (UTC)", ylabel="Listening events (millions)")
 
 
 FIGURES = {
