@@ -100,18 +100,21 @@ cluster (one A100 per job); MovieLens-1M and data preparation run on a laptop.
 
 Goal: a working, verified pipeline end to end and first results. Tracking issue
 [`[TR-0]`](https://github.com/SanjanaK1801/temporec/issues/1); one issue, branch and PR per sub-task.
+The Status column is filled in automatically after every merge into `interim`.
 
-| ID | Sub-task | What is delivered |
-|---|---|---|
-| TR-01 | Repository scaffold and conventions | This repo, pinned environment, README and proposal |
-| TR-02 | Zaratan environment and job scripts | Conda env on Zaratan, GPU check and training job scripts |
-| TR-03 | Last.fm pipeline and time split | Cleaned Last.fm 1K, 60-day time split, dataset statistics and figures |
-| TR-04 | Evaluation module and simple baselines | Shared `evaluate()` (HR, recall, NDCG, coverage at 10), most-popular and recently-played baselines, unit tests |
-| TR-05 | Model builders and per-epoch logging | SASRec, BERT4Rec, HSTU, HSTU-large, TempoRec builders; per-epoch loss logs; early stopping |
-| TR-06 | MovieLens-1M reproduction | HSTU and SASRec (HSTU-large if time) compared with the paper and RecTools numbers |
-| TR-07 | Last.fm training and baselines | Popular, recent, SASRec and HSTU on Last.fm (seed 0), `all` and `discovery` results |
-| TR-08 | TempoRec on Last.fm | First TempoRec run (sequence length 200, 500 if time) compared with HSTU |
-| TR-09 | Epoch curves and results tables | Loss-by-epoch figures for every run and the results tables |
+<!-- status:start -->
+| ID | Sub-task | What is delivered | Status |
+|---|---|---|---|
+| TR-01 | Repository scaffold and conventions | This repo, pinned environment, README and proposal | In progress ([#12](https://github.com/SanjanaK1801/temporec/pull/12), draft), 0/4 done |
+| TR-02 | Zaratan environment and job scripts | Conda env on Zaratan, GPU check and training job scripts | In progress ([#13](https://github.com/SanjanaK1801/temporec/pull/13), draft), 0/3 done |
+| TR-03 | Last.fm pipeline and time split | Cleaned Last.fm 1K, 60-day time split, dataset statistics and figures | In progress ([#14](https://github.com/SanjanaK1801/temporec/pull/14), draft), 0/6 done |
+| TR-04 | Evaluation module and simple baselines | Shared `evaluate()` (HR, recall, NDCG, coverage at 10), most-popular and recently-played baselines, unit tests | In progress ([#15](https://github.com/SanjanaK1801/temporec/pull/15), draft), 0/3 done |
+| TR-05 | Model builders and per-epoch logging | SASRec, BERT4Rec, HSTU, HSTU-large, TempoRec builders; per-epoch loss logs; early stopping | In progress ([#16](https://github.com/SanjanaK1801/temporec/pull/16), draft), 0/4 done |
+| TR-06 | MovieLens-1M reproduction | HSTU and SASRec (HSTU-large if time) compared with the paper and RecTools numbers | In progress ([#17](https://github.com/SanjanaK1801/temporec/pull/17), draft), 0/4 done |
+| TR-07 | Last.fm training and baselines | Popular, recent, SASRec and HSTU on Last.fm (seed 0), `all` and `discovery` results | In progress ([#18](https://github.com/SanjanaK1801/temporec/pull/18), draft), 0/4 done |
+| TR-08 | TempoRec on Last.fm | First TempoRec run (sequence length 200, 500 if time) compared with HSTU | In progress ([#19](https://github.com/SanjanaK1801/temporec/pull/19), draft), 0/3 done |
+| TR-09 | Epoch curves and results tables | Loss-by-epoch figures for every run and the results tables | In progress ([#20](https://github.com/SanjanaK1801/temporec/pull/20), draft), 0/3 done |
+<!-- status:end -->
 
 Interim results are **preliminary**: single seed, and some runs may use a sample of users.
 
