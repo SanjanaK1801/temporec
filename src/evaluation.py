@@ -8,11 +8,15 @@ reco   user_id, item_id, rank (1 = best), at most 10 rows per user
 test   user_id, item_id: the listens we are trying to predict
 train  user_id, item_id: the history, which also defines the catalog
 """
+import fcntl
+import sys
 from pathlib import Path
 
 import pandas as pd
 from rectools import Columns
 from rectools.metrics import NDCG, CatalogCoverage, HitRate, Recall, calc_metrics
+
+from checkpoint import atomic_write
 
 METRICS = {
     "hr@10": HitRate(k=10),
@@ -47,10 +51,24 @@ def drop_seen(reco: pd.DataFrame, train: pd.DataFrame, k: int = 10) -> pd.DataFr
 
 
 def save_result(path: str, row: dict) -> None:
-    """Append one result row to a CSV, so every run adds to the same results table."""
+    """Add one result row to a CSV, so every run ends up in the same results table.
+
+    On Zaratan several jobs can finish at the same moment and write to the same file. Without a
+    lock, two of them can both read the old table, each add their own row, and the second write
+    silently drops the first row. So we hold a lock while reading and rewriting, and the rewrite
+    itself is atomic, so a crash halfway through never leaves a broken CSV (which would lose every
+    earlier result, not just this one).
+    """
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    new = pd.DataFrame([row])
-    if p.exists():  # rows from different scripts can have different columns; align them
-        new = pd.concat([pd.read_csv(p), new], ignore_index=True)
-    new.to_csv(p, index=False)
+    with open(p.with_name(f".{p.name}.lock"), "w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        except OSError as e:
+            # Some cluster file systems don't support locks. Losing the whole run over that would
+            # be worse than the small chance of a clash, so warn and carry on.
+            print(f"warning: could not lock {p} ({e}); writing without a lock", file=sys.stderr)
+        new = pd.DataFrame([row])
+        if p.exists():  # rows from different scripts can have different columns; concat lines them up
+            new = pd.concat([pd.read_csv(p), new], ignore_index=True)
+        atomic_write(p, lambda tmp: new.to_csv(tmp, index=False))

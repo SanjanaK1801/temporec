@@ -45,3 +45,31 @@ def test_baselines():
     assert list(pop["item_id"]) == ["a", "a"]
     recent = recently_played(TRAIN, ["u1"], k=2)
     assert list(recent["item_id"]) == ["c", "b"] and list(recent["rank"]) == [1, 2]
+
+
+def test_save_result_lines_up_different_columns(tmp_path):
+    from evaluation import save_result
+
+    out = tmp_path / "results" / "lastfm.csv"
+    save_result(out, {"model": "popular", "hr@10": 0.1})
+    save_result(out, {"model": "hstu", "hr@10": 0.2, "epochs_run": 12})
+    table = pd.read_csv(out)
+    assert list(table["model"]) == ["popular", "hstu"]
+    assert table["epochs_run"].isna().tolist() == [True, False]
+
+
+def test_jobs_finishing_together_keep_every_row(tmp_path):
+    # 8 processes x 5 rows written to the same CSV at the same time: none may get lost.
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1] / "src"
+    out = tmp_path / "lastfm.csv"
+    code = (f"import sys; sys.path.insert(0, {str(src)!r}); from evaluation import save_result\n"
+            f"for i in range(5): save_result({str(out)!r}, {{'job': int(sys.argv[1]), 'i': i}})")
+    jobs = [subprocess.Popen([sys.executable, "-c", code, str(j)]) for j in range(8)]
+    assert all(job.wait() == 0 for job in jobs)
+    table = pd.read_csv(out)
+    assert len(table) == 40
+    assert sorted(zip(table["job"], table["i"])) == [(j, i) for j in range(8) for i in range(5)]
