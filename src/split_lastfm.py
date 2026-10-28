@@ -1,21 +1,26 @@
-"""Time-based train/test split of the cleaned Last.fm 1K interactions (TR-03, data and eval).
+"""Split the cleaned Last.fm 1K listens into train and test by time (TR-03, data and eval).
 
 Usage:
     python src/split_lastfm.py --data data/processed/lastfm --test-days 30
 
-Reads  interactions.parquet (from prepare_lastfm.py)
-Writes train.parquet, test.parquet, split.json in the same folder.
+Reads interactions.parquet (from prepare_lastfm.py) and writes train.parquet, test.parquet and
+split.json to the same folder.
 
-Rules:
-- One global cutoff = last event time minus --test-days. Train = before cutoff, test = at or after.
-- Test rows whose user or track never appears in train are dropped (models cannot score them).
-- Validation is not a separate file: the training scripts hold out each user's last training item.
+How the split works:
+- One cutoff for everyone: the last listen in the data minus --test-days. Train is everything
+  before the cutoff, test is everything from the cutoff on.
+- Test listens by users or of tracks that never show up in train are dropped, because no model
+  can score them.
+- There is no separate validation file. The training scripts hold out each user's last training
+  listen for that.
 """
 import argparse
 import json
 from pathlib import Path
 
 import pandas as pd
+
+from checkpoint import write_json, write_parquet
 
 
 def time_split(df: pd.DataFrame, test_days: int):
@@ -26,18 +31,19 @@ def time_split(df: pd.DataFrame, test_days: int):
     return train, test, cutoff
 
 
-def main() -> None:
+def main(argv=None) -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--data", default="data/processed/lastfm")
     p.add_argument("--test-days", type=int, default=30)
-    args = p.parse_args()
+    args = p.parse_args(argv)
 
     data = Path(args.data)
     df = pd.read_parquet(data / "interactions.parquet")
     train, test, cutoff = time_split(df, args.test_days)
-    train.to_parquet(data / "train.parquet", index=False)
-    test.to_parquet(data / "test.parquet", index=False)
+    write_parquet(train, data / "train.parquet")
+    write_parquet(test, data / "test.parquet")
 
+    # Share of test listens that are tracks the user never played in train (the "discovery" part).
     seen = train[["user_id", "item_id"]].drop_duplicates()
     first_time = test.merge(seen, how="left", indicator=True)["_merge"].eq("left_only")
     summary = {
@@ -48,7 +54,7 @@ def main() -> None:
         "test_users": int(test["user_id"].nunique()),
         "test_first_time_share": float(first_time.mean()) if len(test) else 0.0,
     }
-    (data / "split.json").write_text(json.dumps(summary, indent=2))
+    write_json(summary, data / "split.json")
     print(json.dumps(summary, indent=2))
     if summary["test_users"] < 200:
         print("WARNING: fewer than 200 test users; consider a larger --test-days")
