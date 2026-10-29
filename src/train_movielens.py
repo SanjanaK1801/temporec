@@ -17,7 +17,7 @@ from rectools.dataset import Dataset
 from rectools.dataset.context import get_context
 
 from evaluation import evaluate, save_result
-from models import TRANSFORMERS, build_model, make_trainer_func
+from models import TRANSFORMERS, build_model, load_best_weights, make_trainer_func
 
 
 def load_movielens(raw_dir: str):
@@ -42,6 +42,7 @@ def main() -> None:
     p.add_argument("--raw", default="data/raw/ml-1m")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--epochs", type=int, default=100)
+    p.add_argument("--patience", type=int, default=10, help="stop after this many epochs without a higher val_hr@10")
     p.add_argument("--results", default="results/movielens.csv")
     args = p.parse_args()
 
@@ -58,17 +59,19 @@ def main() -> None:
     dataset = Dataset.construct(train, item_features_df=genres if use_features else None,
                                 cat_item_features=["genre"] if use_features else ())
     run = f"ml1m_{args.model}_s{args.seed}"
-    model = build_model(args.model, make_trainer_func("logs/lightning", run, args.epochs), use_features)
+    model = build_model(args.model, make_trainer_func("logs/lightning", run, args.epochs, args.patience), use_features)
 
     start = time.time()
     model.fit(dataset)
     minutes = round((time.time() - start) / 60, 1)
+    best_epoch = load_best_weights(model)  # score the epoch with the highest val_hr@10, not the last one
 
     context = get_context(test[[Columns.User, Columns.Datetime]]) if model.require_recommend_context else None
     reco = model.recommend(users=test[Columns.User].unique(), dataset=dataset, k=10,
                            filter_viewed=True, context=context)
     row = {"dataset": "ml-1m", "model": args.model, "seed": args.seed,
-           "epochs_run": model.fit_trainer.current_epoch, "minutes": minutes, **evaluate(reco, test, train)}
+           "epochs_run": model.fit_trainer.current_epoch, "best_epoch": best_epoch, "patience": args.patience,
+           "minutes": minutes, **evaluate(reco, test, train)}
     print(row)
     save_result(args.results, row)
 
