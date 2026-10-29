@@ -1,0 +1,53 @@
+name: README status
+
+# After every merge into interim, update the Status column of the plan table in README.md
+# and commit the change back to interim. interim only takes changes through pull requests,
+# so the push goes through the repo's deploy key (secret README_DEPLOY_KEY), which the
+# interim ruleset lets through. That push starts this workflow again; the job skips its own
+# commit, and a run with nothing to change doesn't commit anyway, so it can't loop.
+on:
+  push:
+    branches: [interim]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+concurrency:
+  group: readme-status
+  cancel-in-progress: false
+
+jobs:
+  update:
+    if: github.event.head_commit.message != 'Update sub-task status in README'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: interim
+          ssh-key: ${{ secrets.README_DEPLOY_KEY }}
+
+      - name: Read PRs and issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr list --repo "$GITHUB_REPOSITORY" --state all --limit 200 \
+            --json number,title,url,state,isDraft,mergedAt,baseRefName,body > "$RUNNER_TEMP/prs.json"
+          gh issue list --repo "$GITHUB_REPOSITORY" --state all --limit 200 \
+            --json number,body > "$RUNNER_TEMP/issues.json"
+
+      - name: Update the table
+        run: python3 .github/scripts/readme_status.py README.md "$RUNNER_TEMP/prs.json" "$RUNNER_TEMP/issues.json"
+
+      - name: Commit if anything changed
+        run: |
+          if git diff --quiet README.md; then
+            echo "README is already up to date"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Update sub-task status in README" README.md
+          git push origin HEAD:interim
