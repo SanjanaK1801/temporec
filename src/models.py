@@ -9,7 +9,7 @@ import os
 import pandas as pd
 import torch
 from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import EarlyStopping
+from pytorch_lightning.callbacks import Callback, EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import CSVLogger
 from rectools import Columns
 from rectools.models import BERT4RecModel, HSTUModel, SASRecModel
@@ -45,12 +45,55 @@ def pick_accelerator() -> str:
     return "cpu"
 
 
-def make_trainer_func(log_dir: str, run_name: str, max_epochs: int, patience: int = 5, accelerator: str = None):
+VAL_METRIC = "val_hr@10"
+
+
+class ValHitRate(Callback):
+    """HR@k on the validation targets after every epoch, logged as val_hr@10.
+
+    Adapted from RecallCallback in the RecTools tutorials (Apache 2.0). The validation targets are
+    the ones get_val_mask_func picks (each user's last training item), so with one target per user
+    this is the same number as recall@k. filter_viewed drops items already in the user's history
+    from the ranking, like recommend(filter_viewed=True); leave it off when replays count.
+
+    The model only sees each user's last session_max_len items, so only those are filtered. For
+    users with longer histories this can come out a little below recommend(), which filters the
+    whole history (on MovieLens-1M after 1 epoch: 0.0348 vs 0.0404). Every model is measured the
+    same way, and early stopping only compares epochs within one run.
+    """
+
+    def __init__(self, k: int = 10, filter_viewed: bool = True):
+        self.k, self.filter_viewed = k, filter_viewed
+        self.hits = []
+
+    def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0):
+        model = pl_module.torch_model
+        sessions = model.encode_sessions(batch, pl_module.item_embs)[:, -1, :]
+        scores = model.similarity_module(sessions, pl_module.item_embs)  # [batch, n_items]
+        if self.filter_viewed:
+            scores = scores.scatter(1, batch["x"], float("-inf"))
+        scores[:, :pl_module.data_preparator.n_item_extra_tokens] = float("-inf")  # padding (and BERT4Rec's mask)
+        top = scores.topk(self.k).indices  # [batch, k]
+        targets = batch["y"]  # [batch, n_targets], 0 = no target
+        hit = (top.unsqueeze(-1) == targets.unsqueeze(1)).any(dim=(1, 2))
+        self.hits.append(hit.float())
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        if self.hits:
+            pl_module.log(VAL_METRIC, torch.cat(self.hits).mean(), on_epoch=True)
+        self.hits.clear()
+
+
+def make_trainer_func(log_dir: str, run_name: str, max_epochs: int, patience: int = 10, accelerator: str = None,
+                      filter_viewed: bool = True):
     """Return a function that builds a Lightning Trainer.
 
-    CSVLogger writes train_loss and val_loss for every epoch to
+    CSVLogger writes train_loss, val_loss and val_hr@10 for every epoch to
     <log_dir>/<run_name>/version_*/metrics.csv (used by plot_curves.py).
-    Training stops when val_loss has not improved for `patience` epochs.
+    Training stops when val_hr@10 has not improved for `patience` epochs (the proposal's rule).
+    The checkpoints/ folder next to metrics.csv keeps the weights from the epoch with the highest
+    val_hr@10 (best.ckpt) and from the latest epoch (last.ckpt); load_best_weights() swaps the
+    best ones back in. filter_viewed goes to ValHitRate.
     """
     accelerator = accelerator or pick_accelerator()
 
@@ -64,10 +107,21 @@ def make_trainer_func(log_dir: str, run_name: str, max_epochs: int, patience: in
             enable_progress_bar=False,
             enable_model_summary=False,
             logger=CSVLogger(log_dir, name=run_name),
-            callbacks=[EarlyStopping(monitor="val_loss", mode="min", patience=patience)],
+            callbacks=[
+                ValHitRate(k=10, filter_viewed=filter_viewed),
+                EarlyStopping(monitor=VAL_METRIC, mode="max", patience=patience),
+                ModelCheckpoint(monitor=VAL_METRIC, mode="max", filename="best", save_top_k=1, save_last=True),
+            ],
         )
 
     return get_trainer
+
+
+def load_best_weights(model) -> int:
+    """After fit, replace the last epoch's weights with the best epoch's. Returns that epoch (1-based)."""
+    path = model.fit_trainer.checkpoint_callback.best_model_path
+    model.load_weights_from_checkpoint(path)
+    return torch.load(path, weights_only=False)["epoch"] + 1
 
 
 def build_model(name: str, trainer_func, use_item_features: bool = False, **overrides):
