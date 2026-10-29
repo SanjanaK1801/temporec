@@ -1,4 +1,4 @@
-"""The two simple baselines every model has to beat (TR-04, data and eval).
+"""The two simple baselines every model has to beat (TR-04).
 
 Both return user_id, item_id, rank, like the models do.
 """

@@ -1,8 +1,8 @@
-"""How every model gets scored (TR-04, data and eval).
+"""How every model gets scored (TR-04).
 
-evaluate(reco, test, train) is the only function the training scripts call, and both of us code
-against its arguments and the metric names it returns. Talk to your partner before changing
-either.
+evaluate(reco, test, train) is the only function the training scripts call, and every script
+codes against its arguments and the metric names it returns, so changing either means updating
+all of them.
 
 reco   user_id, item_id, rank (1 = best), at most 10 rows per user
 test   user_id, item_id: the listens we are trying to predict
