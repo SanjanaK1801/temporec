@@ -1,4 +1,4 @@
-"""Model builders, history chunking and per-epoch logging (TR-05, models and training).
+"""Model builders, history chunking and per-epoch logging (TR-05).
 
 All transformer models come from RecTools (Apache 2.0). HSTU follows the RecTools HSTU tutorial,
 which reproduces Zhai et al., ICML 2024:
