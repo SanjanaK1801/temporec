@@ -16,10 +16,11 @@ both position and the time between events. It reported clear gains over SASRec o
 Amazon Books, but to our knowledge it has not been evaluated on a public music listening dataset.
 
 Music is harder than movies or shopping: people replay the same songs, listen in sessions and
-follow daily routines, so *when* someone listens matters as much as what they played before. We
-reproduce HSTU on MovieLens-1M, then apply it to music listening (Last.fm 1K) and adapt it as
-**TempoRec**: HSTU plus an artist feature, the time of the recommendation request, and tuning for
-long histories.
+follow daily routines, so *when* someone listens matters as much as what they played before.
+Repeat-aware models such as PISA (Tran et al., RecSys 2024) handle replays explicitly, also on
+public Last.fm data. We reproduce HSTU on MovieLens-1M, then apply it to music listening (Last.fm
+1K) and adapt it as **TempoRec**: HSTU plus an artist feature, the time of the recommendation
+request, and tuning for long histories.
 
 ## Problem and research questions
 
@@ -29,8 +30,8 @@ catalog.
 
 1. Does HSTU, adapted to music, predict the next track better than older transformers (SASRec,
    BERT4Rec) and simple baselines (most popular, recently played)?
-2. Does HSTU's time-aware attention matter more for music than for movies? On MovieLens-1M,
-   switching it off barely changes accuracy.
+2. Does HSTU's time-aware attention matter more for music than for movies? We switch it off on
+   both Last.fm 1K and MovieLens-1M and compare the drop in accuracy.
 3. Do our music-specific additions (an artist feature and long-history tuning) improve on vanilla
    HSTU, and do they help with replays, new discoveries, or both?
 
@@ -47,24 +48,27 @@ never committed.
 Last.fm 1K holds each user's full listening history up to June 2009. Our pipeline builds a track
 ID from the lowercased `artist - title`, drops two listens with impossible dates (2010 and 2013),
 drops repeat scrobbles within 30 seconds, keeps tracks with at least 5 plays and users with at
-least 20 events, and splits globally by time: the last 60 days are the test set. That leaves
-17.4M listens from 983 users over 528K tracks, with 798 users in the test set. (Listening thins
-out in May and June 2009, so a 30-day window would leave only 162 test users.) MovieLens-1M uses
-the paper's leave-one-out protocol.
+least 20 events, and splits globally by time at the 80% and 90% points of all listens
+(2008-10-10 and 2009-01-29) into train, validation and test. That leaves 17.4M listens from 983
+users over 528K tracks. Validation and test only keep users and tracks seen in train: 1.5M
+validation listens from 698 users and 1.3M test listens from 784 users. MovieLens-1M uses the
+paper's leave-one-out protocol.
 
 ## Evaluation
 
 - **Full ranking** over every track in the catalog, no sampled negatives.
-- **HR@10**: share of test users with at least one of their test tracks in the top 10 (on
-  MovieLens-1M, the single held-out item).
-- **NDCG@10** (primary): like HR@10, but rewards ranking the true track higher.
+- **HR@10**: share of test cases whose true next item is in the top 10. On MovieLens-1M a test
+  case is each user's held-out last rating. On Last.fm it is a test listen, ranked from the
+  listens before it (next-track scoring, TR-07).
+- **NDCG@10** (primary): like HR@10, but rewards ranking the true item higher.
 - **Recall@10** and **catalog coverage@10** (share of tracks that appear in at least one top-10
   list, a check against recommending only popular songs).
 - **Training cost**: epochs run and minutes per run, recorded with every result.
 - On Last.fm, every run reports two rows: **all** (replays count) and **discovery** (only tracks the
   user never played before).
-- During training, train and validation loss are logged every epoch, training stops early when
-  validation stops improving for 5 epochs, and the curves are plotted for every run.
+- During training, train loss, validation loss and validation HR@10 are logged every epoch.
+  Training stops when validation HR@10 has not improved for 10 epochs, and the epoch with the best
+  validation HR@10 is the one that gets scored on the test set.
 
 Verification targets on MovieLens-1M (HR@10 / NDCG@10):
 
@@ -83,8 +87,9 @@ PyTorch with PyTorch Lightning for the training loop (per-epoch logging, checkpo
 stopping). Models come from [RecTools](https://rectools.readthedocs.io/en/stable/examples/tutorials/transformers_HSTU_tutorial.html)
 (Apache 2.0), which implements HSTU, SASRec and BERT4Rec with the same training loop, so all models
 are compared fairly. Training starts from the RecTools HSTU settings: sampled-softmax loss with 128
-negatives, learning rate 0.001, batch size 128, up to 100 epochs. Last.fm runs on UMD's Zaratan
-cluster (one A100 per job); MovieLens-1M and data preparation run on a laptop.
+negatives, learning rate 0.001, batch size 128, up to 100 epochs. Last.fm training runs on UMD's
+Zaratan cluster (one A100 per job) and MovieLens-1M on a laptop. Data preparation runs on either
+and gives identical output.
 
 | From the existing implementation | Our adaptation |
 |---|---|
@@ -98,7 +103,8 @@ cluster (one A100 per job); MovieLens-1M and data preparation run on a laptop.
 
 ### Interim report (branch `interim`, due Thu Oct 29, 2026)
 
-Goal: a working, verified pipeline end to end and first results. Tracking issue
+The interim report covers TR-01 to TR-06: a verified data pipeline, the evaluation code and
+baselines, the models, and the MovieLens-1M reproduction. TR-07 to TR-09 follow it. Tracking issue
 [`[TR-0]`](https://github.com/SanjanaK1801/temporec/issues/1); one issue, branch and PR per sub-task.
 The Status column is filled in automatically after every merge into `interim`.
 
@@ -107,16 +113,16 @@ The Status column is filled in automatically after every merge into `interim`.
 |---|---|---|---|
 | TR-01 | Repository scaffold and conventions | This repo, pinned environment, README and proposal | In progress ([#12](https://github.com/SanjanaK1801/temporec/pull/12), draft), 0/4 done |
 | TR-02 | Zaratan environment and job scripts | Conda env on Zaratan, GPU check and training job scripts | In progress ([#13](https://github.com/SanjanaK1801/temporec/pull/13), draft), 0/3 done |
-| TR-03 | Last.fm pipeline and time split | Cleaned Last.fm 1K, 60-day time split, dataset statistics and figures | In progress ([#14](https://github.com/SanjanaK1801/temporec/pull/14), draft), 0/6 done |
+| TR-03 | Last.fm pipeline and time split | Cleaned Last.fm 1K, 80/10/10 time split, dataset statistics and figures | In progress ([#14](https://github.com/SanjanaK1801/temporec/pull/14), draft), 0/6 done |
 | TR-04 | Evaluation module and simple baselines | Shared `evaluate()` (HR, recall, NDCG, coverage at 10), most-popular and recently-played baselines, unit tests | In progress ([#15](https://github.com/SanjanaK1801/temporec/pull/15), draft), 0/3 done |
 | TR-05 | Model builders and per-epoch logging | SASRec, BERT4Rec, HSTU, HSTU-large, TempoRec builders; per-epoch loss logs; early stopping | In progress ([#16](https://github.com/SanjanaK1801/temporec/pull/16), draft), 0/4 done |
-| TR-06 | MovieLens-1M reproduction | HSTU and SASRec (HSTU-large if time) compared with the paper and RecTools numbers | In progress ([#17](https://github.com/SanjanaK1801/temporec/pull/17), draft), 0/4 done |
+| TR-06 | MovieLens-1M reproduction | SASRec, BERT4Rec, HSTU, HSTU-large and TempoRec, compared with the paper and RecTools numbers | In progress ([#17](https://github.com/SanjanaK1801/temporec/pull/17), draft), 0/4 done |
 | TR-07 | Last.fm training and baselines | Popular, recent, SASRec and HSTU on Last.fm (seed 0), `all` and `discovery` results | In progress ([#18](https://github.com/SanjanaK1801/temporec/pull/18), draft), 0/4 done |
 | TR-08 | TempoRec on Last.fm | First TempoRec run (sequence length 200, 500 if time) compared with HSTU | In progress ([#19](https://github.com/SanjanaK1801/temporec/pull/19), draft), 0/3 done |
 | TR-09 | Epoch curves and results tables | Loss-by-epoch figures for every run and the results tables | In progress ([#20](https://github.com/SanjanaK1801/temporec/pull/20), draft), 0/3 done |
 <!-- status:end -->
 
-Interim results are **preliminary**: single seed, and some runs may use a sample of users.
+Interim results are **preliminary**: one training seed per model.
 
 ### Final project (branch `final`, Nov 30 – Dec 11, 2026)
 
@@ -136,6 +142,7 @@ Interim results are **preliminary**: single seed, and some runs may use a sample
 ```text
 docs/        proposal and reports
 jobs/        Slurm scripts for the Zaratan cluster
+scripts/     Slurm scripts for the data exploration and cleaning runs on Zaratan
 src/         all code (run from the repo root: python src/<script>.py)
 tests/       pytest unit tests (python -m pytest)
 data/        datasets, never committed
@@ -169,19 +176,14 @@ cd ../..
 # prepare saves a checkpoint after each step; if it dies, rerun the same command and it picks up
 # from the last finished step (--fresh starts over)
 python src/prepare_lastfm.py --raw data/raw/lastfm-dataset-1K/userid-timestamp-artid-artname-traid-traname.tsv --out data/processed/lastfm
-python src/split_lastfm.py --data data/processed/lastfm --test-days 60
+python src/split_lastfm.py --data data/processed/lastfm
 python src/dataset_figures.py
 
-# MovieLens-1M reproduction (compare with the HSTU paper)
-for m in hstu hstu_large sasrec; do sbatch jobs/train.sbatch src/train_movielens.py --model $m --seed 0; done
-
-# Last.fm 1K
-for m in popular recent sasrec hstu temporec; do sbatch jobs/train.sbatch src/train_lastfm.py --model $m --seed 0; done
-
-# figures and tables
-python src/plot_curves.py
-python src/make_tables.py > results/tables.md
+# MovieLens-1M reproduction (compare with the HSTU paper); about 20 to 60 minutes per model on a laptop
+for m in sasrec bert4rec hstu hstu_large temporec; do python src/train_movielens.py --model $m --seed 0; done
 ```
+
+Last.fm training (TR-07) and the results tables and figures (TR-09) add their commands here.
 
 ## References
 
@@ -193,3 +195,4 @@ python src/make_tables.py > results/tables.md
 6. F. M. Harper, J. A. Konstan, *The MovieLens Datasets: History and Context*, ACM TiiS 2015.
 7. W. Krichene, S. Rendle, *On Sampled Metrics for Item Recommendation*, KDD 2020.
 8. F. Sun et al., *BERT4Rec: Sequential Recommendation with Bidirectional Encoder Representations from Transformer*, CIKM 2019.
+9. V.-A. Tran, G. Salha-Galvan, B. Sguerra, R. Hennequin, *Transformers Meet ACT-R: Repeat-Aware and Sequential Listening Session Recommendation*, RecSys 2024. [arXiv:2408.16578](https://arxiv.org/abs/2408.16578).
