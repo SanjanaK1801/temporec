@@ -47,10 +47,11 @@ never committed.
 Last.fm 1K holds each user's full listening history up to June 2009. Our pipeline builds a track
 ID from the lowercased `artist - title`, drops two listens with impossible dates (2010 and 2013),
 drops repeat scrobbles within 30 seconds, keeps tracks with at least 5 plays and users with at
-least 20 events, and splits globally by time: the last 60 days are the test set. That leaves
-17.4M listens from 983 users over 528K tracks, with 798 users in the test set. (Listening thins
-out in May and June 2009, so a 30-day window would leave only 162 test users.) MovieLens-1M uses
-the paper's leave-one-out protocol.
+least 20 events, and splits globally by time at the 80% and 90% points of all listens
+(2008-10-10 and 2009-01-29) into train, validation and test. That leaves 17.4M listens from 983
+users over 528K tracks. Validation and test only keep users and tracks seen in train: 1.5M
+validation listens from 698 users and 1.3M test listens from 784 users. MovieLens-1M uses the
+paper's leave-one-out protocol.
 
 ## Evaluation
 
@@ -167,7 +168,7 @@ cd ../..
 # prepare saves a checkpoint after each step; if it dies, rerun the same command and it picks up
 # from the last finished step (--fresh starts over)
 python src/prepare_lastfm.py --raw data/raw/lastfm-dataset-1K/userid-timestamp-artid-artname-traid-traname.tsv --out data/processed/lastfm
-python src/split_lastfm.py --data data/processed/lastfm --test-days 60
+python src/split_lastfm.py --data data/processed/lastfm
 python src/dataset_figures.py
 
 # MovieLens-1M reproduction (compare with the HSTU paper)
