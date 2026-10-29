@@ -1,15 +1,17 @@
 name: README status
 
 # After every merge into interim, update the Status column of the plan table in README.md
-# and commit the change back to interim. Pushes made with the workflow's own token don't
-# start new workflow runs, so this doesn't loop.
+# and commit the change back to interim. interim only takes changes through pull requests,
+# so the push goes through the repo's deploy key (secret README_DEPLOY_KEY), which the
+# interim ruleset lets through. That push starts this workflow again; the job skips its own
+# commit, and a run with nothing to change doesn't commit anyway, so it can't loop.
 on:
   push:
     branches: [interim]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: read
   issues: read
 
@@ -19,11 +21,13 @@ concurrency:
 
 jobs:
   update:
+    if: github.event.head_commit.message != 'Update sub-task status in README'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: interim
+          ssh-key: ${{ secrets.README_DEPLOY_KEY }}
 
       - name: Read PRs and issues
         env:
