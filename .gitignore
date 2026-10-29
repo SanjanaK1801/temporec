@@ -4,6 +4,8 @@ logs/
 lightning_logs/
 results/debug*.csv
 *.ckpt
+*.tmp
+*.lock
 
 # Python
 __pycache__/

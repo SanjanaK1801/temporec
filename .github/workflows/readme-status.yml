@@ -1,0 +1,49 @@
+name: README status
+
+# After every merge into interim, update the Status column of the plan table in README.md
+# and commit the change back to interim. Pushes made with the workflow's own token don't
+# start new workflow runs, so this doesn't loop.
+on:
+  push:
+    branches: [interim]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+  issues: read
+
+concurrency:
+  group: readme-status
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: interim
+
+      - name: Read PRs and issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr list --repo "$GITHUB_REPOSITORY" --state all --limit 200 \
+            --json number,title,url,state,isDraft,mergedAt,baseRefName,body > "$RUNNER_TEMP/prs.json"
+          gh issue list --repo "$GITHUB_REPOSITORY" --state all --limit 200 \
+            --json number,body > "$RUNNER_TEMP/issues.json"
+
+      - name: Update the table
+        run: python3 .github/scripts/readme_status.py README.md "$RUNNER_TEMP/prs.json" "$RUNNER_TEMP/issues.json"
+
+      - name: Commit if anything changed
+        run: |
+          if git diff --quiet README.md; then
+            echo "README is already up to date"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Update sub-task status in README" README.md
+          git push origin HEAD:interim
