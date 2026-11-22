@@ -41,7 +41,7 @@ def main() -> None:
     p.add_argument("--model", required=True, choices=TRANSFORMERS)
     p.add_argument("--raw", default="data/raw/ml-1m")
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--epochs", type=int, default=100)
+    p.add_argument("--epochs", type=int, default=200, help="epoch cap; early stopping usually ends runs sooner")
     p.add_argument("--patience", type=int, default=10, help="stop after this many epochs without a higher val_hr@10")
     p.add_argument("--results", default="results/movielens.csv")
     args = p.parse_args()
@@ -70,7 +70,8 @@ def main() -> None:
     reco = model.recommend(users=test[Columns.User].unique(), dataset=dataset, k=10,
                            filter_viewed=True, context=context)
     row = {"dataset": "ml-1m", "model": args.model, "seed": args.seed,
-           "epochs_run": model.fit_trainer.current_epoch, "best_epoch": best_epoch, "patience": args.patience,
+           "max_epochs": args.epochs, "epochs_run": model.fit_trainer.current_epoch, "best_epoch": best_epoch,
+           "patience": args.patience,
            "minutes": minutes, **evaluate(reco, test, train)}
     print(row)
     save_result(args.results, row)
