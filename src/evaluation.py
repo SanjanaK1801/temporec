@@ -1,0 +1,74 @@
+"""How every model gets scored (TR-04, data and eval).
+
+evaluate(reco, test, train) is the only function the training scripts call, and both of us code
+against its arguments and the metric names it returns. Talk to your partner before changing
+either.
+
+reco   user_id, item_id, rank (1 = best), at most 10 rows per user
+test   user_id, item_id: the listens we are trying to predict
+train  user_id, item_id: the history, which also defines the catalog
+"""
+import fcntl
+import sys
+from pathlib import Path
+
+import pandas as pd
+from rectools import Columns
+from rectools.metrics import NDCG, CatalogCoverage, HitRate, Recall, calc_metrics
+
+from checkpoint import atomic_write
+
+METRICS = {
+    "hr@10": HitRate(k=10),
+    "recall@10": Recall(k=10),
+    "ndcg@10": NDCG(k=10, divide_by_achievable=True),  # normalized to 0-1, as in the RecTools tutorial
+    "coverage@10": CatalogCoverage(k=10, normalize=True),
+}
+
+
+def evaluate(reco: pd.DataFrame, test: pd.DataFrame, train: pd.DataFrame) -> dict:
+    """Ranking metrics at 10. A track played several times in the test window counts once per user."""
+    test = test.drop_duplicates([Columns.User, Columns.Item])
+    catalog = train[Columns.Item].unique()
+    return calc_metrics(METRICS, reco=reco, interactions=test, prev_interactions=train, catalog=catalog)
+
+
+def first_time_listens(test: pd.DataFrame, train: pd.DataFrame) -> pd.DataFrame:
+    """Test plays of tracks the user never played in train (the 'discovery' target)."""
+    seen = train[[Columns.User, Columns.Item]].drop_duplicates()
+    merged = test.merge(seen, how="left", indicator=True)
+    return merged[merged["_merge"] == "left_only"].drop(columns="_merge")
+
+
+def drop_seen(reco: pd.DataFrame, train: pd.DataFrame, k: int = 10) -> pd.DataFrame:
+    """Remove tracks the user played in train, re-rank, keep the top k (the 'discovery' ranking)."""
+    seen = train[[Columns.User, Columns.Item]].drop_duplicates()
+    new = reco.merge(seen, how="left", indicator=True)
+    new = new[new["_merge"] == "left_only"].drop(columns="_merge")
+    new = new.sort_values([Columns.User, Columns.Rank], kind="stable")
+    new[Columns.Rank] = new.groupby(Columns.User).cumcount() + 1
+    return new[new[Columns.Rank] <= k]
+
+
+def save_result(path: str, row: dict) -> None:
+    """Add one result row to a CSV, so every run ends up in the same results table.
+
+    On Zaratan several jobs can finish at the same moment and write to the same file. Without a
+    lock, two of them can both read the old table, each add their own row, and the second write
+    silently drops the first row. So we hold a lock while reading and rewriting, and the rewrite
+    itself is atomic, so a crash halfway through never leaves a broken CSV (which would lose every
+    earlier result, not just this one).
+    """
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(p.with_name(f".{p.name}.lock"), "w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        except OSError as e:
+            # Some cluster file systems don't support locks. Losing the whole run over that would
+            # be worse than the small chance of a clash, so warn and carry on.
+            print(f"warning: could not lock {p} ({e}); writing without a lock", file=sys.stderr)
+        new = pd.DataFrame([row])
+        if p.exists():  # rows from different scripts can have different columns; concat lines them up
+            new = pd.concat([pd.read_csv(p), new], ignore_index=True)
+        atomic_write(p, lambda tmp: new.to_csv(tmp, index=False))
