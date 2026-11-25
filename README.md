@@ -87,7 +87,7 @@ PyTorch with PyTorch Lightning for the training loop (per-epoch logging, checkpo
 stopping). Models come from [RecTools](https://rectools.readthedocs.io/en/stable/examples/tutorials/transformers_HSTU_tutorial.html)
 (Apache 2.0), which implements HSTU, SASRec and BERT4Rec with the same training loop, so all models
 are compared fairly. Training starts from the RecTools HSTU settings: sampled-softmax loss with 128
-negatives, learning rate 0.001, batch size 128, up to 100 epochs. Last.fm training runs on UMD's
+negatives, learning rate 0.001, batch size 128, up to 200 epochs. Last.fm training runs on UMD's
 Zaratan cluster (one A100 per job) and MovieLens-1M on a laptop. Data preparation runs on either
 and gives identical output.
 
@@ -179,8 +179,8 @@ python src/prepare_lastfm.py --raw data/raw/lastfm-dataset-1K/userid-timestamp-a
 python src/split_lastfm.py --data data/processed/lastfm
 python src/dataset_figures.py
 
-# MovieLens-1M reproduction (compare with the HSTU paper); about 20 to 60 minutes per model on a laptop
-for m in sasrec bert4rec hstu hstu_large temporec; do python src/train_movielens.py --model $m --seed 0; done
+# MovieLens-1M reproduction (compare with the HSTU paper): 5 models x 3 seeds, about 10 to 60 minutes per run on a laptop
+for s in 0 1 2; do for m in sasrec bert4rec hstu hstu_large temporec; do python src/train_movielens.py --model $m --seed $s; done; done
 ```
 
 Last.fm training (TR-07) and the results tables and figures (TR-09) add their commands here.
