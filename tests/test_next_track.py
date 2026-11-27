@@ -4,8 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from next_track import (catalog_ids, evaluate, history_batches, popular_scorer, recent_scorer,
-                        summarize)
+from next_track import catalog_ids, evaluate, history_batches, summarize
 
 
 def toy_seq():
@@ -45,22 +44,26 @@ def test_hand_computed_metrics():
     out = summarize(per_target, k=10)
     assert out["all_hr@10"] == 0.5
     assert out["all_ndcg@10"] == pytest.approx((1 + 1 / math.log2(4)) / 4)
-    assert out["replay_hr@10"] == 0.5 and out["discovery_hr@10"] == 0.5
+    assert out["replay_hr@10"] == 0.5 and out["new_hr@10"] == 0.5
     assert out["unscorable"] == 1 and "all_gate" not in out
 
 
-def test_recently_played_ranks_by_last_play():
-    # target 5 (id 2) follows ids 1 2 1 3 4: last plays 4 > 3 > 1 > 2, so id 2 ranks 4th
-    # target 10 (id 5) was never played by listener 1: ids 4 and 3 rank above it, ties at 0 don't count
-    _, per_target = evaluate(recent_scorer(5), toy_seq(), TARGETS, catalog_ids(5), max_len=10, k=1)
-    assert per_target["rank"].tolist() == [4, 4, 5, 3]
+def fixed_scores(x, ts):
+    # ids 0..5; id 4 always best, then 5, 1, 2, 3 (id 0 is padding and never ranked)
+    return np.tile(np.array([9.0, 3.0, 2.0, 1.0, 5.0, 4.0]), (len(x), 1)), None
 
 
-def test_most_popular_uses_train_counts_only():
-    # train plays: track 0 twice, track 1 once, track 2 twice (listener 1); tracks 3 and 4 never
-    out, per_target = evaluate(popular_scorer(toy_seq()), toy_seq(), TARGETS, catalog_ids(5), max_len=10, k=3)
-    assert per_target["rank"].tolist() == [4, 3, 4, 4]
-    assert out["all_hr@3"] == 0.25 and per_target["gate"].isna().all()
+def test_ranks_come_from_the_scores():
+    # targets: id 4, id 2, id 5, id 5 -> ranks 1, 4, 2, 2
+    out, per_target = evaluate(fixed_scores, toy_seq(), TARGETS, catalog_ids(5), max_len=10, k=2)
+    assert per_target["rank"].tolist() == [1, 4, 2, 2]
+    assert out["all_hr@2"] == 0.75 and out["replay_hr@2"] == 0.0 and out["new_hr@2"] == 1.0
+    assert per_target["gate"].isna().all()
+
+
+def test_coverage_counts_distinct_top_k_tracks():
+    out, _ = evaluate(fixed_scores, toy_seq(), TARGETS, catalog_ids(5), max_len=10, k=2)
+    assert out["coverage@2"] == 2 / 5  # every listener gets ids 4 and 5
 
 
 def test_gate_values_are_split_by_replay():
@@ -69,4 +72,4 @@ def test_gate_values_are_split_by_replay():
 
     out, _ = evaluate(fake, toy_seq(), TARGETS, catalog_ids(5), max_len=10)
     assert out["replay_gate"] == pytest.approx(0.9)  # target 5 comes right after track 3
-    assert out["discovery_gate"] == pytest.approx((0.1 + 0.1 + 0.9) / 3)
+    assert out["new_gate"] == pytest.approx((0.1 + 0.1 + 0.9) / 3)

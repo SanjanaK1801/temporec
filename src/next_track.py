@@ -1,11 +1,23 @@
-"""Next-track evaluation on Last.fm, the same loop for every model (TR-08).
+"""Next-track evaluation on Last.fm, the same loop for every trained model (TR-08).
 
 For each sampled test listen (lastfm_data.sample_test_targets: up to 100 per user, seeded), the
 history is the listener's last `max_len` plays before it, from train, validation and earlier test
 listens, with their timestamps plus the listen's own time as the request time. The scorer ranks
 every catalog track, nothing is filtered (replays count), and the rank of the true track is kept.
 Results: HR@10 and NDCG@10 over all sampled listens, over replays (tracks the listener played
-before) and over discoveries; for TempoRec also the average gate value before each kind.
+before) and over new tracks, catalog coverage of the top 10s, and for TempoRec the average gate
+value before each kind.
+
+This is the protocol of next_track_eval.py (TR-07), scored through temporec.score_next instead of
+RecTools' recommend(): recommend() ranks with a plain dot product and would drop TempoRec's
+per-listener repeat bonus. For models without the gate both give the same scores and the same top
+10s (checked on SASRec and HSTU: largest score difference 0.0). The baselines (most popular,
+recently played) stay in next_track_baselines.py.
+
+Tracks the model never saw in training are dropped from a history, and a target track it never
+saw is counted in `unscorable`. recommend() refuses a listener left with no known tracks at all
+("cold"); here that listener is scored from an empty history. With all users in training every
+test track is known; both only happen on --sample-frac debug runs.
 
 A scorer is `score_fn(x, unix_ts) -> (scores, gate or None)`: x [batch, max_len] item ids with 0
 as padding, unix_ts [batch, max_len + 1] in seconds (last column = request time), scores
@@ -30,10 +42,10 @@ def history_batches(seq: dict, targets: np.ndarray, to_ids: np.ndarray, max_len:
         x = np.zeros((len(pos), max_len), dtype=np.int64)
         ts = np.zeros((len(pos), max_len + 1), dtype=np.int64)
         for r, (p, s) in enumerate(zip(pos, user_start[lo : lo + batch_size])):
-            first = max(s, p - 2 * max_len)  # a margin in case some history tracks are unknown to the scorer
-            hist, hist_ts = items[first:p], times[first:p]
+            # the last max_len plays, then without tracks the scorer doesn't know (as recommend() does)
+            hist, hist_ts = items[max(s, p - max_len):p], times[max(s, p - max_len):p]
             keep = hist != 0
-            hist, hist_ts = hist[keep][-max_len:], hist_ts[keep][-max_len:]
+            hist, hist_ts = hist[keep], hist_ts[keep]
             n = len(hist)
             x[r, max_len - n :] = hist
             ts[r, max_len - n : max_len] = hist_ts
@@ -45,7 +57,7 @@ def history_batches(seq: dict, targets: np.ndarray, to_ids: np.ndarray, max_len:
 def evaluate(score_fn: tp.Callable, seq: dict, targets: np.ndarray, to_ids: np.ndarray, max_len: int,
              n_skip: int = 1, k: int = 10, batch_size: int = 128) -> tp.Tuple[dict, pd.DataFrame]:
     """Rank every sampled test listen; return the summary and one row per target."""
-    rows = []
+    rows, top_k = [], []
     for x, ts, true, replay in history_batches(seq, targets, to_ids, max_len, batch_size):
         scores, gate = score_fn(x, ts)
         scores = torch.as_tensor(scores, dtype=torch.float32).clone()
@@ -53,22 +65,25 @@ def evaluate(score_fn: tp.Callable, seq: dict, targets: np.ndarray, to_ids: np.n
         true_t = torch.as_tensor(true, device=scores.device)
         true_score = scores.gather(1, true_t.clamp(min=0).unsqueeze(1))
         rank = (scores > true_score).sum(dim=1).cpu().numpy() + 1
+        top_k.append(scores.topk(min(k, scores.shape[1]), dim=1).indices.cpu().numpy())
         rank = np.where(true == 0, np.inf, rank)  # a track the scorer has never seen can't be ranked
         rows.append(pd.DataFrame({
             "rank": rank, "replay": replay,
             "gate": np.nan if gate is None else torch.as_tensor(gate).float().cpu().numpy(),
         }))
     per_target = pd.concat(rows, ignore_index=True)
-    return summarize(per_target, k), per_target
+    summary = summarize(per_target, k)
+    summary[f"coverage@{k}"] = len(np.unique(np.concatenate(top_k))) / seq["n_items"]
+    return summary, per_target
 
 
 def summarize(per_target: pd.DataFrame, k: int = 10) -> dict:
-    """HR@k and NDCG@k overall, for replays and for discoveries, plus the gate before each."""
+    """HR@k and NDCG@k overall, for replays and for new tracks, plus the gate before each."""
     hit = per_target["rank"] <= k
     ndcg = np.where(hit, 1 / np.log2(per_target["rank"].clip(upper=1e9) + 1), 0.0)
     out = {}
     for name, mask in (("all", np.ones(len(per_target), bool)), ("replay", per_target["replay"].to_numpy()),
-                       ("discovery", ~per_target["replay"].to_numpy())):
+                       ("new", ~per_target["replay"].to_numpy())):
         out[f"{name}_n"] = int(mask.sum())
         out[f"{name}_hr@{k}"] = float(hit[mask].mean()) if mask.any() else float("nan")
         out[f"{name}_ndcg@{k}"] = float(ndcg[mask].mean()) if mask.any() else float("nan")
@@ -97,22 +112,3 @@ def model_scorer(model, catalog: pd.Index, device: tp.Optional[str] = None):
 def catalog_ids(n_items: int) -> np.ndarray:
     """Ids for scorers that work on catalog positions directly: position i -> i + 1 (0 = padding)."""
     return np.arange(1, n_items + 1, dtype=np.int64)
-
-
-def popular_scorer(seq: dict):
-    """Most popular: training play counts, the same for every listener."""
-    counts = np.bincount(np.asarray(seq["item"])[np.asarray(seq["split"]) == 0] + 1,
-                         minlength=seq["n_items"] + 1).astype(np.float32)
-    return lambda x, ts: (np.broadcast_to(counts, (len(x), len(counts))), None)
-
-
-def recent_scorer(n_items: int):
-    """Recently played: the more recent the last play of a track in the history, the higher it ranks."""
-    def score_fn(x, ts):
-        scores = np.zeros((len(x), n_items + 1), dtype=np.float32)
-        order = np.arange(1, x.shape[1] + 1, dtype=np.float32)
-        for r in range(len(x)):
-            scores[r, x[r]] = order  # for repeated tracks the latest position wins
-        scores[:, 0] = 0
-        return scores, None
-    return score_fn
