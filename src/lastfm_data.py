@@ -1,9 +1,9 @@
+import os
 import argparse
 import numpy as np
 import pandas as pd
 
-DATA = ("/scratch/zt1/project/msml612/shared/next_song_prediction/"
-        "data/processed_v2/lastfm")
+DATA = os.environ.get("LASTFM_DATA", "data/processed_v2/lastfm")
 SPLIT_CODE = {"train": 0, "val": 1, "test": 2}
 
 

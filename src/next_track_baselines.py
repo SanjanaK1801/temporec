@@ -2,7 +2,7 @@ import argparse
 import json
 import os
 import numpy as np
-from lastfm_data import load_sequences, sample_test_targets, SPLIT_CODE
+from lastfm_data import DATA, load_sequences, sample_test_targets, SPLIT_CODE
 
 K = 10
 
@@ -41,9 +41,10 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--per-user", type=int, default=100)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--data", default=DATA)
     a = ap.parse_args()
 
-    seq = load_sequences()
+    seq = load_sequences(a.data)
     t = sample_test_targets(seq, a.per_user, a.seed)
     items = seq["item"]
     truth = items[t].tolist()
