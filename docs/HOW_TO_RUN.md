@@ -16,16 +16,13 @@ python -m pytest -q
 
 ## 2. Get the data (not included in the repo)
 
-Last.fm 1K is licensed for non-commercial research and we do not redistribute it.
-
-- Last.fm 1K: <PASTE THE ZENODO LINK FROM REFERENCE [5]> (file `lastfm-dataset-1K.tar.gz`, 642 MB)
-- MovieLens-1M: https://files.grouplens.org/datasets/movielens/ml-1m.zip
+Last.fm 1K (Celma, 2010; Zenodo DOI 10.5281/zenodo.6090214) is distributed with permission of Last.fm for non-commercial use, so we do not redistribute it. Please reference Last.fm when using it. MovieLens-1M is from GroupLens.
 
 ```bash
-mkdir -p data/raw && cd data/raw
-wget "<ZENODO LINK>" && tar -xzf lastfm-dataset-1K.tar.gz
-cd ../..
+bash scripts/download_data.sh
 ```
+
+The script downloads both datasets into `data/raw`, and checks the Last.fm archive against the published MD5 (`a79a6808f54f73354789a9fb02cb1e41`). It needs `wget`, `tar`, `unzip` and `md5sum`.
 
 ## 3. Build the Last.fm data
 
