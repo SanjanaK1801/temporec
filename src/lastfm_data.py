@@ -27,7 +27,8 @@ def load_sequences(data_dir=DATA):
     df = pd.concat(parts, ignore_index=True)
     df["item"] = catalog.get_indexer(df["item_id"])
     assert (df["item"] >= 0).all(), "track outside the train catalog"
-    df["user"] = pd.factorize(df["user_id"])[0]
+    codes, user_labels = pd.factorize(df["user_id"])
+    df["user"] = codes
     df = df.sort_values(["user", "datetime"], kind="stable").reset_index(drop=True)
     df["replay"] = df.groupby(["user", "item"]).cumcount() > 0
 
@@ -40,7 +41,7 @@ def load_sequences(data_dir=DATA):
         "time": df["datetime"].astype("int64").to_numpy() // 10**9,
         "replay": df["replay"].to_numpy(),
         "starts": starts, "ends": ends,
-        "n_items": len(catalog), "catalog": catalog,
+        "n_items": len(catalog), "catalog": catalog, "users": user_labels,
     }
 
 
