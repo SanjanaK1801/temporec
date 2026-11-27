@@ -63,7 +63,7 @@ Each of up to 100 test listens per user (seeded) is scored on its own: the model
 ## 6. Constraints
 
 - Full training needs a GPU. We used one NVIDIA A100 (40 GB) on Zaratan.
-- Cleaning the full file took about 3 minutes with 64 GB of RAM requested; peak memory was not measured.
+- Cleaning the full file took about 3 minutes and peaked at about 10 GB of RAM (measured with Slurm's MaxRSS); the split and the data loader peaked at about 4 GB. Training memory depends on the model and is reported with the run results.
 - Data: 19.15M listens (2.4 GB file). Housekeeping files and checkpoints go in `data/` and `logs/`, which Git ignores.
 - Compute is a shared course allocation (A100 = 48 service units per hour), so the experiment grid is small: one setting, seed 0.
 - Limits of the method: about 76% of sampled test listens are replays, 4% of events are dropped because their track or user is unseen in training, and ID-based models cannot score new tracks.
