@@ -7,7 +7,8 @@ import torch
 from rectools.dataset import Dataset
 
 from models import build_model, make_trainer_func
-from temporec import TempoRecBackbone, cyclical_time_features, recency_weights, score_next
+from temporec import (TempoRecBackbone, WindowNegativeSampler, cyclical_time_features, recency_weights,
+                      score_next)
 
 DAY, WEEK = 86400, 7 * 86400
 
@@ -123,3 +124,36 @@ def test_tracks_never_played_get_no_bonus(full_backbone):
     played[:, 0] = False  # padding
     assert torch.equal(scores[~played], plain[~played])
     assert (scores[played] > plain[played]).all()
+
+
+def test_window_negatives_come_from_recent_plays_and_never_the_positive():
+    torch.manual_seed(0)
+    x = torch.tensor([[0, 0, 5, 6, 7, 5], [9, 9, 9, 9, 9, 9]])  # listener 1 only ever plays id 9
+    y = torch.tensor([[0, 5, 6, 7, 5, 8], [9, 9, 9, 9, 9, 9]])
+    sampler = WindowNegativeSampler(n_negatives=10, window=3, n_window=4)
+    neg = sampler.get_negatives({"x": x, "y": y}, lowest_id=1, highest_id=9)  # uniform draws are 1..8
+    assert neg.shape == (2, 6, 10)
+    assert set(neg[0, -1, :4].tolist()) <= {5, 6, 7}  # last window: 6, 7, 5; the positive is 8
+    assert (neg[1, :, :4] != 9).all()  # the only recent play is the positive itself: uniform draws instead
+    assert (neg >= 1).all()  # never padding
+
+
+def test_window_negatives_in_validation_use_the_last_window():
+    torch.manual_seed(0)
+    x = torch.tensor([[11, 12, 13, 14]])
+    sampler = WindowNegativeSampler(n_negatives=6, window=2, n_window=6)
+    neg = sampler.get_negatives({"x": x, "y": torch.tensor([[13]])}, lowest_id=1, highest_id=11,
+                                session_len_limit=1)
+    assert neg.shape == (1, 1, 6)
+    values = neg[0, 0].tolist()
+    assert 13 not in values  # in the window, but it is the true next track
+    assert 14 in values and set(values) <= {14} | set(range(1, 11))
+
+
+def test_build_model_with_window_negatives(tmp_path):
+    trainer_func = make_trainer_func(str(tmp_path), "w", max_epochs=1, accelerator="cpu")
+    model = build_model("hstu", trainer_func, repeat_gate=True, gate_window=7, window_negatives=3)
+    assert model.negative_sampler_type is WindowNegativeSampler
+    assert model.negative_sampler_kwargs == {"window": 7, "n_window": 3}
+    with pytest.raises(ValueError):
+        build_model("sasrec", trainer_func, window_negatives=3)

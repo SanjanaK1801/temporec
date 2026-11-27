@@ -16,7 +16,7 @@ from rectools.models import BERT4RecModel, HSTUModel, SASRecModel
 from rectools.models.nn.item_net import CatFeaturesItemNet, IdEmbeddingsItemNet
 from rectools.models.nn.transformers.utils import leave_one_out_mask
 
-from temporec import TempoRecBackbone, score_next
+from temporec import TempoRecBackbone, WindowNegativeSampler, score_next
 
 TRANSFORMERS = ("sasrec", "bert4rec", "hstu", "hstu_large", "temporec")
 
@@ -128,7 +128,7 @@ def load_best_weights(model) -> int:
 
 
 def build_model(name: str, trainer_func, use_item_features: bool = False, time_embeddings: bool = False,
-                repeat_gate: bool = False, gate_window: int = 50, **overrides):
+                repeat_gate: bool = False, gate_window: int = 50, window_negatives: int = 0, **overrides):
     """Build one of: sasrec, bert4rec, hstu, hstu_large, temporec.
 
     temporec = HSTU whose item embedding also includes categorical item features
@@ -137,11 +137,13 @@ def build_model(name: str, trainer_func, use_item_features: bool = False, time_e
     time_embeddings and repeat_gate switch on TempoRec's own components (temporec.py) for any of the
     HSTU models, so the ablation ladder (HSTU, + artist, + time embeddings, + gate) is built from flags.
     gate_window is how many recent plays the gate looks at: 50 on an A100, 20 on a laptop.
+    window_negatives is how many of the n_negatives come from those recent plays (temporec.py), so
+    the gate also learns when boosting a recent track is wrong; 0 keeps all negatives uniform.
     """
     if name not in TRANSFORMERS:
         raise ValueError(f"unknown model {name}")
-    if (time_embeddings or repeat_gate) and name in ("sasrec", "bert4rec"):
-        raise ValueError("time embeddings and the repeat gate are built on HSTU")
+    if (time_embeddings or repeat_gate or window_negatives) and name in ("sasrec", "bert4rec"):
+        raise ValueError("time embeddings, the repeat gate and window negatives are built on HSTU")
     cfg = {**BASE_CONFIG, **overrides, "get_trainer_func": trainer_func}
     time_attention = cfg.pop("relative_time_attention", True)
     cfg["item_net_block_types"] = (
@@ -160,6 +162,9 @@ def build_model(name: str, trainer_func, use_item_features: bool = False, time_e
                                   "repeat_gate": repeat_gate, "gate_window": gate_window}
         # batches need unix_ts even when time-aware attention is switched off for an ablation
         cfg["data_preparator_kwargs"] = {**(cfg.get("data_preparator_kwargs") or {}), "add_unix_ts": True}
+    if window_negatives:
+        cfg["negative_sampler_type"] = WindowNegativeSampler
+        cfg["negative_sampler_kwargs"] = {"window": gate_window, "n_window": window_negatives}
     return HSTUModel(relative_time_attention=time_attention, relative_pos_attention=True, **cfg)
 
 

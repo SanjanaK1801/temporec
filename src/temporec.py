@@ -22,11 +22,17 @@ the request time.
 RecTools' recommend() ranks with a plain dot product, so it cannot add a per-listener bonus.
 `score_next` scores the whole catalog for the next position instead (the bonus is scattered onto the
 few tracks in the window); the next-track evaluation and the validation callback use it.
+
+Window negatives: with uniform negatives over ~500K tracks, a negative is almost never one of the
+listener's recent plays, so the bonus only ever helps the true track and the gate never learns to
+switch off before a new track. WindowNegativeSampler draws some negatives from the listener's own
+recent plays (never the true next track), so boosting a recent track can also be wrong in training.
 """
 import math
 import typing as tp
 
 import torch
+from rectools.models.nn.transformers.negative_sampler import CatalogUniformSampler
 from rectools.models.nn.transformers.torch_backbone import TransformerTorchBackbone
 from torch import nn
 
@@ -48,6 +54,30 @@ def recency_weights(play_ts: torch.Tensor, request_ts: torch.Tensor, items: torc
     """(hours since the play + 1) ** -decay for every play in a window; 0 for padding (item 0)."""
     hours = (request_ts - play_ts).clamp(min=0).float() / 3600
     return (hours + 1).pow(-decay) * (items != 0)
+
+
+class WindowNegativeSampler(CatalogUniformSampler):
+    """Uniform negatives, except the first `n_window` at each position, which are drawn from the
+    listener's last `window` plays at that position. A draw that is padding or the true next track
+    keeps its uniform negative instead."""
+
+    def __init__(self, n_negatives: int, window: int = 50, n_window: int = 16, **kwargs: tp.Any) -> None:
+        super().__init__(n_negatives=n_negatives, **kwargs)
+        self.window, self.n_window = window, min(n_window, n_negatives)
+
+    def get_negatives(self, batch_dict: tp.Dict, lowest_id: int, highest_id: int,
+                      session_len_limit: tp.Optional[int] = None, **kwargs: tp.Any) -> torch.Tensor:
+        negatives = super().get_negatives(batch_dict, lowest_id, highest_id, session_len_limit, **kwargs)
+        if self.n_window == 0:
+            return negatives
+        x, y = batch_dict["x"], batch_dict["y"]  # x [batch, L]; y [batch, L] in training, [batch, 1] in validation
+        window = min(self.window, x.shape[1])
+        win_items = nn.functional.pad(x, (window - 1, 0)).unfold(1, window, 1)[:, -negatives.shape[1]:]
+        pick = torch.randint(0, window, (*win_items.shape[:2], self.n_window))
+        drawn = win_items.gather(-1, pick)  # [batch, positions, n_window]
+        usable = (drawn >= lowest_id) & (drawn != y[:, -negatives.shape[1]:].unsqueeze(-1))
+        negatives[..., : self.n_window] = torch.where(usable, drawn, negatives[..., : self.n_window])
+        return negatives
 
 
 class TempoRecBackbone(TransformerTorchBackbone):
